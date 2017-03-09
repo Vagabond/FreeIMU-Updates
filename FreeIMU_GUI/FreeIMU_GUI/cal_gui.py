@@ -36,6 +36,7 @@ import cal_lib, numpy
 acc_file_name = "acc.txt"
 magn_file_name = "magn.txt"
 calibration_h_file_name = "calibration.h"
+use_stdin = False
 
 #####
 ##
@@ -151,6 +152,23 @@ class FreeIMUCal(QMainWindow, Ui_FreeIMUCal):
     self.statusbar.showMessage(self.tr(status))
 
   def serial_connect(self):
+    if use_stdin:
+      self.ser = sys.stdin
+      self.serialPortEdit.setEnabled(False)
+      self.serialProtocol.setEnabled(False)
+
+      self.samplingToggleButton.setEnabled(True)
+        
+      self.clearCalibrationEEPROMButton.setEnabled(True)
+      self.clearCalibrationEEPROMButton.clicked.connect(self.clear_calibration_eeprom)
+
+      QApplication.restoreOverrideCursor()
+      self.connectButton.setEnabled(True)
+      print("connected")
+      return
+
+
+    print("trying to connect")
     self.serial_port = str(self.serialPortEdit.text())
     # save serial value to user settings
     self.settings.setValue("calgui/serialPortEdit", self.serial_port)
@@ -161,6 +179,7 @@ class FreeIMUCal(QMainWindow, Ui_FreeIMUCal):
     self.set_status("Connecting to " + self.serial_port + " ...")
     
     # TODO: serial port field input validation!
+
     
     try:
       self.ser = serial.Serial(
@@ -313,7 +332,7 @@ class FreeIMUCal(QMainWindow, Ui_FreeIMUCal):
 
 const int acc_off_x = %d;
 const int acc_off_y = %d;
-const int acc_off_z = %d;
+/onst int acc_off_z = %d;
 const float acc_scale_x = %f;
 const float acc_scale_y = %f;
 const float acc_scale_z = %f;
@@ -395,21 +414,26 @@ class SerialWorker(QThread):
     print "sampling start.."
     self.acc_file = open(acc_file_name, 'w')
     self.magn_file = open(magn_file_name, 'w')
-    count = 100
+    count = 10
     in_values = 9
     reading = [0.0 for i in range(in_values)]
     # read data for calibration    
     while not self.exiting:
       # determine word size   
-      self.ser.write('b')
-      self.ser.write(chr(count))
+      if not use_stdin:
+        self.ser.write('b')
+        self.ser.write(chr(count))
       for j in range(count):
-        for i in range(in_values):
-          if word == 4:
-            reading[i] = unpack('hh', self.ser.read(4))[0]
-          if word == 2:
-            reading[i] = unpack('h', self.ser.read(2))[0]            
-        self.ser.read(2) # consumes remaining '\r\n'
+        if use_stdin:
+          reading = [ int(float(e)) for e in self.ser.readline().split()]
+          print(reading)
+        else:
+          for i in range(in_values):
+            if word == 4:
+              reading[i] = unpack('hh', self.ser.read(4))[0]
+            if word == 2:
+              reading[i] = unpack('h', self.ser.read(2))[0]            
+          self.ser.read(2) # consumes remaining '\r\n'
         if reading[8] == 0:
           reading[6] = 1
           reading[7] = 1
@@ -431,6 +455,10 @@ class SerialWorker(QThread):
     self.exiting = True
     self.wait()
     print "SerialWorker exits.."
+
+for arg in sys.argv:
+  if arg == "--stdin":
+    use_stdin = True
 
 
 app = QApplication(sys.argv)
